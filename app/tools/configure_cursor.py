@@ -1,10 +1,12 @@
 import argparse
 import json
 import os
+import re
 import shutil
 import sqlite3
 import subprocess
 import sys
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -18,11 +20,13 @@ OPENAI_KEY_CELL = "cursorAuth/openAIKey"
 
 def main() -> int:
     parser = argparse.ArgumentParser(description="Configure Cursor to use AgentBridge.")
-    parser.add_argument("--base-url", default="http://127.0.0.1:8787/v1")
+    parser.add_argument("--base-url", default=None)
     parser.add_argument("--api-key", default=None)
     parser.add_argument("--default-model", default="agentbridge-auto")
     parser.add_argument("--db-path", default=None)
     parser.add_argument("--backup-dir", default=None)
+    parser.add_argument("--tunnel", choices=["none", "cloudflared"], default="none")
+    parser.add_argument("--tunnel-timeout", type=int, default=45)
     parser.add_argument("--force", action="store_true", help="Write even when Cursor appears to be running.")
     parser.add_argument("--open", action="store_true", help="Open Cursor on the configured project after writing.")
     args = parser.parse_args()
@@ -31,20 +35,30 @@ def main() -> int:
     db_path = Path(args.db_path).expanduser().resolve() if args.db_path else cursor_state_db_path()
     backup_dir = Path(args.backup_dir).expanduser().resolve() if args.backup_dir else settings.config_dir_path / ".agentbridge" / "cursor-backups"
     api_key = args.api_key or settings.api_key
+    tunnel_summary: dict[str, Any] | None = None
+    base_url = args.base_url
 
     if not db_path.exists():
         raise SystemExit(f"Cursor state database not found: {db_path}")
     if is_cursor_running() and not args.force:
         raise SystemExit("Cursor is running. Quit Cursor first or pass --force.")
 
+    if args.tunnel == "cloudflared":
+        tunnel_summary = start_cloudflared_tunnel(settings, timeout_seconds=args.tunnel_timeout)
+        base_url = f"{tunnel_summary['publicUrl'].rstrip('/')}/v1"
+    if not base_url:
+        base_url = f"http://{settings.server.host}:{settings.server.port}/v1"
+
     summary = configure_cursor(
         db_path=db_path,
         backup_dir=backup_dir,
-        base_url=args.base_url,
+        base_url=base_url,
         api_key=api_key,
         model_ids=settings.cursor_model_ids(),
         default_model=args.default_model,
     )
+    if tunnel_summary:
+        summary["tunnel"] = tunnel_summary
 
     if args.open:
         open_cursor(settings.project_root_path)
@@ -80,6 +94,81 @@ def is_cursor_running() -> bool:
         return "Cursor.exe" in result.stdout
     result = subprocess.run(["pgrep", "-x", "Cursor"], capture_output=True, text=True, check=False)
     return result.returncode == 0
+
+
+def start_cloudflared_tunnel(settings: Any, timeout_seconds: int = 45) -> dict[str, Any]:
+    tunnel_dir = settings.config_dir_path / ".agentbridge" / "tunnel"
+    tunnel_dir.mkdir(parents=True, exist_ok=True)
+    stdout_log = tunnel_dir / "cloudflared.out.log"
+    stderr_log = tunnel_dir / "cloudflared.err.log"
+    pid_file = tunnel_dir / "cloudflared.pid"
+    url_file = tunnel_dir / "cloudflared.url"
+
+    for path in [stdout_log, stderr_log]:
+        path.unlink(missing_ok=True)
+
+    local_url = f"http://{settings.server.host}:{settings.server.port}"
+    command = [
+        _npx_command(),
+        "--yes",
+        "cloudflared",
+        "tunnel",
+        "--url",
+        local_url,
+        "--no-autoupdate",
+    ]
+
+    stdout_handle = stdout_log.open("w", encoding="utf-8")
+    stderr_handle = stderr_log.open("w", encoding="utf-8")
+    try:
+        process = subprocess.Popen(
+            command,
+            cwd=settings.config_dir_path,
+            stdout=stdout_handle,
+            stderr=stderr_handle,
+            text=True,
+            close_fds=True,
+            creationflags=subprocess.CREATE_NO_WINDOW if sys.platform == "win32" else 0,
+        )
+    finally:
+        stdout_handle.close()
+        stderr_handle.close()
+
+    pid_file.write_text(str(process.pid), encoding="utf-8")
+
+    public_url = _wait_for_tunnel_url(stderr_log, process, timeout_seconds)
+    url_file.write_text(public_url, encoding="utf-8")
+    return {
+        "provider": "cloudflared",
+        "pid": process.pid,
+        "localUrl": local_url,
+        "publicUrl": public_url,
+        "stdoutLog": str(stdout_log),
+        "stderrLog": str(stderr_log),
+        "pidFile": str(pid_file),
+    }
+
+
+def _npx_command() -> str:
+    if sys.platform == "win32":
+        return shutil.which("npx.cmd") or shutil.which("npx") or "npx.cmd"
+    return shutil.which("npx") or "npx"
+
+
+def _wait_for_tunnel_url(log_path: Path, process: subprocess.Popen[Any], timeout_seconds: int) -> str:
+    deadline = time.time() + timeout_seconds
+    pattern = re.compile(r"https://[-a-z0-9]+\.trycloudflare\.com")
+    while time.time() < deadline:
+        if process.poll() is not None:
+            log = log_path.read_text(encoding="utf-8", errors="replace") if log_path.exists() else ""
+            raise RuntimeError(f"cloudflared exited before creating a tunnel.\n\n{log.strip()}")
+        if log_path.exists():
+            log = log_path.read_text(encoding="utf-8", errors="replace")
+            match = pattern.search(log)
+            if match:
+                return match.group(0)
+        time.sleep(1)
+    raise TimeoutError(f"Timed out waiting for cloudflared tunnel URL. Check {log_path}.")
 
 
 def configure_cursor(

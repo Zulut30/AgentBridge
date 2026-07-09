@@ -79,38 +79,208 @@ class ModelPreset(BaseModel):
     cursor_enabled: bool = True
 
 
-class ModelsConfig(BaseModel):
-    presets: list[ModelPreset] = Field(
-        default_factory=lambda: [
-            ModelPreset(id="agentbridge-auto", agent="auto", label="AgentBridge Auto"),
-            ModelPreset(id="agentbridge-grok", agent="grok", label="AgentBridge Grok"),
-            ModelPreset(id="agentbridge-codex", agent="codex", label="AgentBridge Codex"),
+def _default_model_presets() -> list[ModelPreset]:
+    presets: list[ModelPreset] = [
+        ModelPreset(id="agentbridge-auto", agent="auto", label="AgentBridge Auto"),
+        ModelPreset(id="agentbridge-grok", agent="grok", label="AgentBridge Grok"),
+        ModelPreset(id="agentbridge-codex", agent="codex", label="AgentBridge Codex"),
+    ]
+
+    _add_variant_presets(
+        presets,
+        agent="auto",
+        bases=[
+            "gpt-5.6-sol",
+            "gpt-5.5",
+            "gpt-5.4",
+        ],
+        efforts=["none", "low", "medium", "high", "xhigh"],
+        include_fast=True,
+    )
+    _add_variant_presets(
+        presets,
+        agent="auto",
+        bases=[
+            "gpt-5.4-mini",
+            "gpt-5.4-nano",
+        ],
+        efforts=["none", "low", "medium", "high", "xhigh"],
+    )
+    _add_variant_presets(
+        presets,
+        agent="auto",
+        bases=[
+            "gpt-5.3-codex",
+            "gpt-5.2-codex",
+            "gpt-5.2",
+        ],
+        efforts=["low", "high", "xhigh"],
+        include_fast=True,
+    )
+    _add_variant_presets(
+        presets,
+        agent="auto",
+        bases=[
+            "gpt-5.1-codex-max",
+        ],
+        efforts=["low", "medium", "high", "xhigh"],
+        include_fast=True,
+    )
+    _add_variant_presets(
+        presets,
+        agent="auto",
+        bases=[
+            "gpt-5.1",
+            "gpt-5.1-codex-mini",
+        ],
+        efforts=["low", "high"],
+    )
+    _add_variant_presets(
+        presets,
+        agent="auto",
+        bases=[
+            "gpt-5-codex",
+            "gpt-5",
+            "gpt-5-mini",
+            "gpt-5-nano",
+        ],
+        efforts=["low", "medium", "high"],
+    )
+
+    _add_variant_presets(
+        presets,
+        agent="codex",
+        bases=[
+            "gpt-5.3-codex",
+            "gpt-5.2-codex",
+            "gpt-5.1-codex-max",
+            "gpt-5.1-codex-mini",
+            "gpt-5-codex",
+        ],
+        efforts=["low", "medium", "high", "xhigh"],
+        include_fast=True,
+    )
+
+    presets.extend(
+        [
+            ModelPreset(id="agentbridge-grok-build", agent="grok", target_model="grok-build"),
             ModelPreset(
-                id="agentbridge-auto-gpt-5.5-medium",
-                agent="auto",
-                target_model="gpt-5.5",
+                id="agentbridge-grok-build-low",
+                agent="grok",
+                target_model="grok-build",
+                reasoning_effort="low",
+            ),
+            ModelPreset(
+                id="agentbridge-grok-build-medium",
+                agent="grok",
+                target_model="grok-build",
                 reasoning_effort="medium",
             ),
             ModelPreset(
-                id="agentbridge-auto-gpt-5.5-high",
-                agent="auto",
-                target_model="gpt-5.5",
+                id="agentbridge-grok-build-high",
+                agent="grok",
+                target_model="grok-build",
                 reasoning_effort="high",
             ),
             ModelPreset(
-                id="agentbridge-auto-gpt-5.6-sol-medium",
-                agent="auto",
-                target_model="gpt-5.6-sol",
-                reasoning_effort="medium",
-            ),
-            ModelPreset(
-                id="agentbridge-auto-gpt-5.6-sol-high",
-                agent="auto",
-                target_model="gpt-5.6-sol",
-                reasoning_effort="high",
+                id="agentbridge-grok-composer-2.5-fast",
+                agent="grok",
+                target_model="grok-composer-2.5-fast",
             ),
         ]
     )
+
+    return _dedupe_presets(presets)
+
+
+def _add_variant_presets(
+    presets: list[ModelPreset],
+    *,
+    agent: str,
+    bases: list[str],
+    efforts: list[str],
+    include_fast: bool = False,
+) -> None:
+    for base in bases:
+        presets.append(ModelPreset(id=f"agentbridge-{agent}-{base}", agent=agent, target_model=base))
+        for effort in efforts:
+            reasoning = _reasoning_from_suffix(effort)
+            presets.append(
+                ModelPreset(
+                    id=f"agentbridge-{agent}-{base}-{effort}",
+                    agent=agent,
+                    target_model=base,
+                    reasoning_effort=reasoning,
+                )
+            )
+            if include_fast:
+                presets.append(
+                    ModelPreset(
+                        id=f"agentbridge-{agent}-{base}-{effort}-fast",
+                        agent=agent,
+                        target_model=base,
+                        reasoning_effort=reasoning,
+                        description="Fast variant requested by Cursor; CLI support depends on the selected backend.",
+                    )
+                )
+
+
+def _dedupe_presets(presets: list[ModelPreset]) -> list[ModelPreset]:
+    seen: set[str] = set()
+    deduped: list[ModelPreset] = []
+    for preset in presets:
+        if preset.id in seen:
+            continue
+        seen.add(preset.id)
+        deduped.append(preset)
+    return deduped
+
+
+def _reasoning_from_suffix(suffix: str | None) -> str | None:
+    if suffix in {None, "", "default", "none"}:
+        return None
+    if suffix == "extra-high":
+        return "xhigh"
+    return suffix
+
+
+def _infer_agentbridge_preset(model_id: str) -> ModelPreset | None:
+    prefixes = {
+        "agentbridge-auto-": "auto",
+        "agentbridge-codex-": "codex",
+        "agentbridge-grok-": "grok",
+    }
+    for prefix, agent in prefixes.items():
+        if not model_id.startswith(prefix):
+            continue
+        target_model, reasoning_effort = _parse_agentbridge_target(model_id[len(prefix) :], agent)
+        return ModelPreset(
+            id=model_id,
+            agent=agent,
+            target_model=target_model,
+            reasoning_effort=reasoning_effort,
+        )
+    return None
+
+
+def _parse_agentbridge_target(raw_target: str, agent: str) -> tuple[str | None, str | None]:
+    target = raw_target.strip("-")
+    if not target:
+        return None, None
+
+    if agent != "grok" and target.endswith("-fast"):
+        target = target[: -len("-fast")]
+
+    for suffix in ["extra-high", "xhigh", "medium", "high", "low", "none", "max"]:
+        marker = f"-{suffix}"
+        if target.endswith(marker):
+            return target[: -len(marker)] or None, _reasoning_from_suffix(suffix)
+
+    return target, None
+
+
+class ModelsConfig(BaseModel):
+    presets: list[ModelPreset] = Field(default_factory=_default_model_presets)
 
 
 class UsageConfig(BaseModel):
@@ -177,12 +347,9 @@ class AgentBridgeConfig(BaseModel):
             if preset.id == model_id:
                 return preset
 
-        if model_id.startswith("agentbridge-grok"):
-            return ModelPreset(id=model_id, agent="grok")
-        if model_id.startswith("agentbridge-codex"):
-            return ModelPreset(id=model_id, agent="codex")
-        if model_id.startswith("agentbridge-auto"):
-            return ModelPreset(id=model_id, agent="auto")
+        inferred = _infer_agentbridge_preset(model_id)
+        if inferred:
+            return inferred
 
         return ModelPreset(id=model_id, agent="auto", target_model=model_id)
 

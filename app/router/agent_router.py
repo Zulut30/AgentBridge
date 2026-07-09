@@ -1,8 +1,9 @@
 import asyncio
 import re
 import time
+from typing import Any
 
-from app.config import AgentBridgeConfig, get_settings
+from app.config import AgentBridgeConfig, ModelPreset, get_settings
 from app.context.prompt_builder import PromptBuilder
 from app.executors.codex_executor import CodexExecutor
 from app.executors.grok_executor import GrokExecutor
@@ -48,9 +49,11 @@ class AgentRouter:
         )
 
         if agent == "both":
+            grok_target, grok_reasoning = self._executor_args_for("grok", preset)
+            codex_target, codex_reasoning = self._executor_args_for("codex", preset)
             grok_result, codex_result = await asyncio.gather(
-                self.grok_executor.run(prompt, preset.target_model, preset.reasoning_effort),
-                self.codex_executor.run(prompt, preset.target_model, preset.reasoning_effort),
+                self._run_with_model_fallback(self.grok_executor, prompt, grok_target, grok_reasoning),
+                self._run_with_model_fallback(self.codex_executor, prompt, codex_target, codex_reasoning),
             )
             content = self._merge_results(grok_result, codex_result)
             return self._route_result(
@@ -65,7 +68,13 @@ class AgentRouter:
             )
 
         if agent == "grok":
-            result = await self.grok_executor.run(prompt, preset.target_model, preset.reasoning_effort)
+            executor_target, executor_reasoning = self._executor_args_for("grok", preset)
+            result = await self._run_with_model_fallback(
+                self.grok_executor,
+                prompt,
+                executor_target,
+                executor_reasoning,
+            )
             return self._route_result(
                 self._format_single_result(result),
                 requested_model,
@@ -78,7 +87,13 @@ class AgentRouter:
             )
 
         if agent == "codex":
-            result = await self.codex_executor.run(prompt, preset.target_model, preset.reasoning_effort)
+            executor_target, executor_reasoning = self._executor_args_for("codex", preset)
+            result = await self._run_with_model_fallback(
+                self.codex_executor,
+                prompt,
+                executor_target,
+                executor_reasoning,
+            )
             return self._route_result(
                 self._format_single_result(result),
                 requested_model,
@@ -92,10 +107,22 @@ class AgentRouter:
 
         default_agent = self.settings.routing.default_agent
         if default_agent == "grok":
-            result = await self.grok_executor.run(prompt, preset.target_model, preset.reasoning_effort)
+            executor_target, executor_reasoning = self._executor_args_for("grok", preset)
+            result = await self._run_with_model_fallback(
+                self.grok_executor,
+                prompt,
+                executor_target,
+                executor_reasoning,
+            )
             selected_agent = "grok"
         else:
-            result = await self.codex_executor.run(prompt, preset.target_model, preset.reasoning_effort)
+            executor_target, executor_reasoning = self._executor_args_for("codex", preset)
+            result = await self._run_with_model_fallback(
+                self.codex_executor,
+                prompt,
+                executor_target,
+                executor_reasoning,
+            )
             selected_agent = "codex"
         return self._route_result(
             self._format_single_result(result),
@@ -148,6 +175,65 @@ class AgentRouter:
         if " " in keyword:
             return keyword in normalized_prompt
         return re.search(rf"\b{re.escape(keyword)}\b", normalized_prompt) is not None
+
+    def _executor_args_for(self, selected_agent: str, preset: ModelPreset) -> tuple[str | None, str | None]:
+        target_model = preset.target_model
+        reasoning_effort = preset.reasoning_effort
+
+        if selected_agent == "grok":
+            if target_model and not target_model.startswith("grok"):
+                target_model = None
+            if reasoning_effort not in {None, "low", "medium", "high"}:
+                reasoning_effort = None
+
+        if selected_agent == "codex" and target_model:
+            is_codex_compatible = target_model.startswith("gpt-") or "codex" in target_model
+            if not is_codex_compatible:
+                target_model = None
+
+        return target_model, reasoning_effort
+
+    async def _run_with_model_fallback(
+        self,
+        executor: Any,
+        prompt: str,
+        target_model: str | None,
+        reasoning_effort: str | None,
+    ) -> AgentResult:
+        result = await executor.run(prompt, target_model, reasoning_effort)
+        if not target_model or result.success or not self._looks_like_model_rejection(result):
+            return result
+
+        fallback = await executor.run(prompt, None, reasoning_effort)
+        fallback.duration_seconds += result.duration_seconds
+        if fallback.success:
+            fallback.stdout = (
+                f"AgentBridge model fallback: `{target_model}` was rejected by {result.agent} CLI, "
+                "so the request was retried with that CLI's default model.\n\n"
+                f"{fallback.stdout}"
+            )
+            return fallback
+
+        original_error = (result.stderr or result.stdout or "").strip()
+        fallback_error = (fallback.stderr or fallback.stdout or "").strip()
+        fallback.stderr = (
+            f"Original model `{target_model}` was rejected by {result.agent} CLI:\n"
+            f"{original_error}\n\n"
+            "Fallback without an explicit model also failed:\n"
+            f"{fallback_error}"
+        )
+        return fallback
+
+    def _looks_like_model_rejection(self, result: AgentResult) -> bool:
+        output = f"{result.stderr or ''}\n{result.stdout or ''}".lower()
+        markers = [
+            "model is not supported",
+            "unknown model",
+            "unsupported model",
+            "model_not_found",
+            "invalid model",
+        ]
+        return any(marker in output for marker in markers)
 
     def describe_auto(self) -> dict[str, object]:
         return {

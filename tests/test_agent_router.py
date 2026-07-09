@@ -11,6 +11,7 @@ class FakeExecutor:
     def __init__(self, agent: str) -> None:
         self.agent = agent
         self.calls: list[tuple[str | None, str | None]] = []
+        self.results: list[AgentResult] = []
 
     async def run(
         self,
@@ -19,6 +20,8 @@ class FakeExecutor:
         reasoning_effort: str | None = None,
     ) -> AgentResult:
         self.calls.append((target_model, reasoning_effort))
+        if self.results:
+            return self.results.pop(0)
         return AgentResult(
             agent=self.agent,
             success=True,
@@ -59,6 +62,39 @@ class AgentRouterTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.reasoning_effort, "high")
         self.assertEqual(codex.calls, [("gpt-5.5", "high")])
 
+    async def test_web_route_does_not_pass_openai_model_to_grok(self) -> None:
+        router, grok, _codex = self._router()
+
+        result = await router.run("search X for current news", "agentbridge-auto-gpt-5.5-high")
+
+        self.assertEqual(result.selected_agent, "grok")
+        self.assertEqual(result.target_model, "gpt-5.5")
+        self.assertEqual(result.reasoning_effort, "high")
+        self.assertEqual(grok.calls, [(None, "high")])
+
+    async def test_unknown_agentbridge_model_id_is_parsed(self) -> None:
+        router, _grok, codex = self._router()
+
+        result = await router.run("fix this bug", "agentbridge-auto-gpt-5.6-sol-xhigh-fast")
+
+        self.assertEqual(result.target_model, "gpt-5.6-sol")
+        self.assertEqual(result.reasoning_effort, "xhigh")
+        self.assertEqual(codex.calls, [("gpt-5.6-sol", "xhigh")])
+
+    async def test_unsupported_target_model_falls_back_to_default_cli_model(self) -> None:
+        router, _grok, codex = self._router()
+        codex.results = [
+            AgentResult("codex", False, "", "model is not supported", 0.01, 1),
+            AgentResult("codex", True, "fallback ok", None, 0.02, 0),
+        ]
+
+        result = await router.run("fix this bug", "agentbridge-auto-gpt-5.6-sol-high")
+
+        self.assertTrue(result.success)
+        self.assertIn("AgentBridge model fallback", result.content)
+        self.assertIn("fallback ok", result.content)
+        self.assertEqual(codex.calls, [("gpt-5.6-sol", "high"), (None, "high")])
+
     def _router(self) -> tuple[AgentRouter, FakeExecutor, FakeExecutor]:
         temp_dir = tempfile.TemporaryDirectory()
         self.addCleanup(temp_dir.cleanup)
@@ -75,4 +111,3 @@ class AgentRouterTest(unittest.IsolatedAsyncioTestCase):
 
 if __name__ == "__main__":
     unittest.main()
-
