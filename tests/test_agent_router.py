@@ -11,6 +11,7 @@ class FakeExecutor:
     def __init__(self, agent: str) -> None:
         self.agent = agent
         self.calls: list[tuple[str | None, str | None]] = []
+        self.prompts: list[str] = []
         self.results: list[AgentResult] = []
 
     async def run(
@@ -19,6 +20,7 @@ class FakeExecutor:
         target_model: str | None = None,
         reasoning_effort: str | None = None,
     ) -> AgentResult:
+        self.prompts.append(prompt)
         self.calls.append((target_model, reasoning_effort))
         if self.results:
             return self.results.pop(0)
@@ -42,6 +44,8 @@ class AgentRouterTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.content, "grok ok")
         self.assertEqual(len(grok.calls), 1)
         self.assertEqual(len(codex.calls), 0)
+        self.assertIn("Use web search and X/x.com search", grok.prompts[0])
+        self.assertNotIn("# AgentBridge Task", grok.prompts[0])
 
     async def test_auto_routes_code_tasks_to_codex(self) -> None:
         router, grok, codex = self._router()
@@ -52,6 +56,7 @@ class AgentRouterTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.content, "codex ok")
         self.assertEqual(len(grok.calls), 0)
         self.assertEqual(len(codex.calls), 1)
+        self.assertIn("# AgentBridge Task", codex.prompts[0])
 
     async def test_model_preset_passes_target_model_and_reasoning(self) -> None:
         router, _grok, codex = self._router()
@@ -94,6 +99,15 @@ class AgentRouterTest(unittest.IsolatedAsyncioTestCase):
         self.assertIn("AgentBridge model fallback", result.content)
         self.assertIn("fallback ok", result.content)
         self.assertEqual(codex.calls, [("gpt-5.6-sol", "high"), (None, "high")])
+
+    async def test_empty_success_is_reported_as_agent_failure(self) -> None:
+        router, grok, _codex = self._router()
+        grok.results = [AgentResult("grok", True, "", None, 0.01, 0)]
+
+        result = await router.run("search X for current news", "agentbridge-auto")
+
+        self.assertFalse(result.success)
+        self.assertIn("agent returned empty output", result.content)
 
     def _router(self) -> tuple[AgentRouter, FakeExecutor, FakeExecutor]:
         temp_dir = tempfile.TemporaryDirectory()

@@ -40,20 +40,26 @@ class AgentRouter:
         if agent == "auto":
             agent = self._resolve_auto_agent(parsed.clean_prompt)
 
-        prompt = self.prompt_builder.build(
+        codex_prompt = self.prompt_builder.build(
             parsed.clean_prompt,
             requested_model=requested_model,
             target_model=preset.target_model,
             reasoning_effort=preset.reasoning_effort,
             selected_agent=agent,
         )
+        grok_prompt = self.prompt_builder.build_grok(
+            parsed.clean_prompt,
+            requested_model=requested_model,
+            target_model=preset.target_model,
+            reasoning_effort=preset.reasoning_effort,
+        )
 
         if agent == "both":
             grok_target, grok_reasoning = self._executor_args_for("grok", preset)
             codex_target, codex_reasoning = self._executor_args_for("codex", preset)
             grok_result, codex_result = await asyncio.gather(
-                self._run_with_model_fallback(self.grok_executor, prompt, grok_target, grok_reasoning),
-                self._run_with_model_fallback(self.codex_executor, prompt, codex_target, codex_reasoning),
+                self._run_with_model_fallback(self.grok_executor, grok_prompt, grok_target, grok_reasoning),
+                self._run_with_model_fallback(self.codex_executor, codex_prompt, codex_target, codex_reasoning),
             )
             content = self._merge_results(grok_result, codex_result)
             return self._route_result(
@@ -71,7 +77,7 @@ class AgentRouter:
             executor_target, executor_reasoning = self._executor_args_for("grok", preset)
             result = await self._run_with_model_fallback(
                 self.grok_executor,
-                prompt,
+                grok_prompt,
                 executor_target,
                 executor_reasoning,
             )
@@ -90,7 +96,7 @@ class AgentRouter:
             executor_target, executor_reasoning = self._executor_args_for("codex", preset)
             result = await self._run_with_model_fallback(
                 self.codex_executor,
-                prompt,
+                codex_prompt,
                 executor_target,
                 executor_reasoning,
             )
@@ -110,7 +116,7 @@ class AgentRouter:
             executor_target, executor_reasoning = self._executor_args_for("grok", preset)
             result = await self._run_with_model_fallback(
                 self.grok_executor,
-                prompt,
+                grok_prompt,
                 executor_target,
                 executor_reasoning,
             )
@@ -119,7 +125,7 @@ class AgentRouter:
             executor_target, executor_reasoning = self._executor_args_for("codex", preset)
             result = await self._run_with_model_fallback(
                 self.codex_executor,
-                prompt,
+                codex_prompt,
                 executor_target,
                 executor_reasoning,
             )
@@ -201,10 +207,12 @@ class AgentRouter:
         reasoning_effort: str | None,
     ) -> AgentResult:
         result = await executor.run(prompt, target_model, reasoning_effort)
+        result = self._empty_success_as_failure(result)
         if not target_model or result.success or not self._looks_like_model_rejection(result):
             return result
 
         fallback = await executor.run(prompt, None, reasoning_effort)
+        fallback = self._empty_success_as_failure(fallback)
         fallback.duration_seconds += result.duration_seconds
         if fallback.success:
             fallback.stdout = (
@@ -223,6 +231,18 @@ class AgentRouter:
             f"{fallback_error}"
         )
         return fallback
+
+    def _empty_success_as_failure(self, result: AgentResult) -> AgentResult:
+        if not result.success or result.stdout.strip():
+            return result
+        return AgentResult(
+            agent=result.agent,
+            success=False,
+            stdout=result.stdout,
+            stderr="agent returned empty output",
+            duration_seconds=result.duration_seconds,
+            returncode=result.returncode,
+        )
 
     def _looks_like_model_rejection(self, result: AgentResult) -> bool:
         output = f"{result.stderr or ''}\n{result.stdout or ''}".lower()

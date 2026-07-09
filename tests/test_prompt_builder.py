@@ -41,7 +41,30 @@ class PromptBuilderTest(unittest.TestCase):
 
         self.assertIn("No skills loaded.", prompt)
 
+    def test_grok_prompt_is_search_focused_and_compact(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            settings = AgentBridgeConfig(
+                project=ProjectConfig(root=str(root)),
+                skills=SkillsConfig(enabled=False),
+                config_dir=str(root),
+            )
+
+            prompt = PromptBuilder(settings).build_grok(
+                "какая колода в Hearthstone сейчас популярная в X",
+                requested_model="agentbridge-auto",
+            )
+
+        self.assertIn("Use web search and X/x.com search", prompt)
+        self.assertIn("Answer in the same language", prompt)
+        self.assertIn("хартстоун", prompt)
+        self.assertIn("Hearthstone", prompt)
+        self.assertIn("Answer the user's exact subject", prompt)
+        self.assertIn("omit unrelated general X trend summaries", prompt)
+        self.assertIn("какая колода", prompt)
+        self.assertNotIn("# AgentBridge Task", prompt)
+        self.assertNotIn("No skills loaded.", prompt)
+
 
 if __name__ == "__main__":
     unittest.main()
-
