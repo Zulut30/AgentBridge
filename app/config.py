@@ -25,6 +25,7 @@ class AgentConfig(BaseModel):
     timeout_seconds: int = 1200
     mode: str = "exec"
     args: list[str] = Field(default_factory=list)
+    prompt_via_stdin: bool = False
 
 
 class AgentsConfig(BaseModel):
@@ -121,4 +122,3 @@ def load_settings(config_path: str | Path | None = None) -> AgentBridgeConfig:
 @lru_cache(maxsize=1)
 def get_settings() -> AgentBridgeConfig:
     return load_settings()
-

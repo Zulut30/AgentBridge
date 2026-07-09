@@ -61,6 +61,7 @@ agents:
     command: "grok"
     timeout_seconds: 1200
     mode: "headless"
+    prompt_via_stdin: false
     args:
       - "-p"
 
@@ -69,6 +70,7 @@ agents:
     command: "codex"
     timeout_seconds: 1200
     mode: "exec"
+    prompt_via_stdin: true
     args:
       - "exec"
 
@@ -92,7 +94,7 @@ safety:
     - "git push --force"
 ```
 
-CLI-флаги не захардкожены в коде. Меняйте `agents.grok.command`, `agents.grok.args`, `agents.codex.command` и `agents.codex.args` под установленные версии Grok Build CLI и Codex CLI.
+CLI-флаги не захардкожены в коде. Меняйте `agents.grok.command`, `agents.grok.args`, `agents.codex.command` и `agents.codex.args` под установленные версии Grok Build CLI и Codex CLI. Для Windows `.cmd` shim рекомендуется `prompt_via_stdin: true`, чтобы multiline prompt не обрезался shell-оберткой.
 
 ## Запуск
 
@@ -271,4 +273,3 @@ Current limitations:
 ```bash
 python -m unittest discover -s tests
 ```
-

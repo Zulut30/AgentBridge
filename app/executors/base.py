@@ -48,7 +48,9 @@ class SubprocessAgentExecutor(AgentExecutor):
                 returncode=None,
             )
 
-        command = [self.agent_config.command, *self.agent_config.args, prompt]
+        command = [self.agent_config.command, *self.agent_config.args]
+        if not self.agent_config.prompt_via_stdin:
+            command.append(prompt)
 
         try:
             self.safety.ensure_command_allowed(command)
@@ -65,6 +67,7 @@ class SubprocessAgentExecutor(AgentExecutor):
             process = await asyncio.create_subprocess_exec(
                 *command,
                 cwd=str(self.settings.project_root_path),
+                stdin=asyncio.subprocess.PIPE if self.agent_config.prompt_via_stdin else None,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
             )
@@ -90,8 +93,9 @@ class SubprocessAgentExecutor(AgentExecutor):
             )
 
         try:
+            prompt_input = prompt.encode("utf-8") if self.agent_config.prompt_via_stdin else None
             stdout_bytes, stderr_bytes = await asyncio.wait_for(
-                process.communicate(),
+                process.communicate(input=prompt_input),
                 timeout=self.agent_config.timeout_seconds,
             )
         except TimeoutError:
@@ -131,4 +135,3 @@ class SubprocessAgentExecutor(AgentExecutor):
             duration_seconds=time.perf_counter() - start,
             returncode=returncode,
         )
-

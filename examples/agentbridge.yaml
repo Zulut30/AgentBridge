@@ -13,6 +13,7 @@ agents:
     command: "grok"
     timeout_seconds: 1200
     mode: "headless"
+    prompt_via_stdin: false
     args:
       - "-p"
 
@@ -21,6 +22,7 @@ agents:
     command: "codex"
     timeout_seconds: 1200
     mode: "exec"
+    prompt_via_stdin: true
     args:
       - "exec"
 
@@ -42,4 +44,3 @@ safety:
     - "TRUNCATE"
     - "DELETE FROM"
     - "git push --force"
-
