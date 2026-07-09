@@ -130,6 +130,7 @@ skills:
 safety:
   readonly_by_default: true
   forbid_dangerous_commands: true
+  forbid_dangerous_prompts: false
   forbidden_patterns:
     - "rm -rf /"
     - "DROP DATABASE"
@@ -334,6 +335,8 @@ AgentBridge загружает все `.md` файлы из путей `skills.p
 - `skills/no-dangerous-actions.md`
 
 ## Ошибки CLI
+
+По умолчанию `forbid_dangerous_prompts: false`, поэтому обычный текст prompt может обсуждать слова вроде `truncate` или `DELETE FROM` без provider error. `forbid_dangerous_commands: true` продолжает проверять реальные CLI-команды и статические аргументы перед запуском.
 
 Если CLI не установлен, выключен в конфиге, завершился с ошибкой или превысил timeout, AgentBridge вернет понятный текст в ответ Cursor. Пример:
 

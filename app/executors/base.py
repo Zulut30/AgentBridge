@@ -67,7 +67,8 @@ class SubprocessAgentExecutor(AgentExecutor):
             command.append(prompt)
 
         try:
-            self.safety.ensure_command_allowed(command)
+            command_for_safety = command if self.agent_config.prompt_via_stdin else command[:-1]
+            self.safety.ensure_command_allowed(command_for_safety)
         except ValueError as exc:
             return self._result(
                 start,

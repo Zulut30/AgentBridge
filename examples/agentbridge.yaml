@@ -58,6 +58,7 @@ skills:
 safety:
   readonly_by_default: true
   forbid_dangerous_commands: true
+  forbid_dangerous_prompts: false
   forbidden_patterns:
     - "rm -rf /"
     - "DROP DATABASE"

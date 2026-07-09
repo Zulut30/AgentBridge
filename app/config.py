@@ -298,6 +298,7 @@ class SkillsConfig(BaseModel):
 class SafetyConfig(BaseModel):
     readonly_by_default: bool = True
     forbid_dangerous_commands: bool = True
+    forbid_dangerous_prompts: bool = False
     forbidden_patterns: list[str] = Field(
         default_factory=lambda: [
             "rm -rf /",
