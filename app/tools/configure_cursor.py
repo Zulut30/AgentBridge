@@ -78,9 +78,22 @@ def cursor_state_db_path() -> Path:
 
 def open_cursor(project_root: Path) -> None:
     cursor_bin = shutil.which("cursor") or shutil.which("cursor.cmd") or shutil.which("Cursor.exe")
-    if not cursor_bin:
-        raise RuntimeError("Could not find Cursor launcher on PATH.")
-    subprocess.Popen([cursor_bin, "--reuse-window", str(project_root)], close_fds=True)
+    if cursor_bin:
+        subprocess.Popen([cursor_bin, "--reuse-window", str(project_root)], close_fds=True)
+        return
+
+    if sys.platform == "darwin":
+        subprocess.Popen(["open", "-a", "Cursor", str(project_root)], close_fds=True)
+        return
+
+    if sys.platform == "win32":
+        local_appdata = Path(os.environ.get("LOCALAPPDATA", ""))
+        candidate = local_appdata / "Programs" / "cursor" / "Cursor.exe"
+        if candidate.exists():
+            subprocess.Popen([str(candidate), "--reuse-window", str(project_root)], close_fds=True)
+            return
+
+    raise RuntimeError("Could not find Cursor launcher.")
 
 
 def is_cursor_running() -> bool:

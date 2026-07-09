@@ -28,6 +28,27 @@ Cursor
 
 Требуется Python 3.11+.
 
+Быстрый старт на Windows:
+
+```powershell
+Set-ExecutionPolicy -Scope Process Bypass
+.\scripts\install.ps1
+.\scripts\run.ps1
+.\scripts\check.ps1 -Server
+```
+
+Быстрый старт на macOS/Linux:
+
+```bash
+chmod +x scripts/*.sh
+./scripts/install.sh
+./scripts/run.sh
+./scripts/check.sh --server
+```
+
+Подробная инструкция: [`docs/INSTALL.md`](docs/INSTALL.md).
+Технический аудит и release checklist: [`docs/TECHNICAL_AUDIT.md`](docs/TECHNICAL_AUDIT.md).
+
 ```bash
 python -m venv .venv
 source .venv/bin/activate
