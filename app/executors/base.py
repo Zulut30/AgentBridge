@@ -20,7 +20,12 @@ def command_is_available(command: str) -> bool:
 
 class AgentExecutor(ABC):
     @abstractmethod
-    async def run(self, prompt: str) -> AgentResult:
+    async def run(
+        self,
+        prompt: str,
+        target_model: str | None = None,
+        reasoning_effort: str | None = None,
+    ) -> AgentResult:
         raise NotImplementedError
 
 
@@ -36,7 +41,12 @@ class SubprocessAgentExecutor(AgentExecutor):
         self.settings = settings
         self.safety = SafetyPolicy(settings.safety)
 
-    async def run(self, prompt: str) -> AgentResult:
+    async def run(
+        self,
+        prompt: str,
+        target_model: str | None = None,
+        reasoning_effort: str | None = None,
+    ) -> AgentResult:
         start = time.perf_counter()
 
         if not self.agent_config.enabled:
@@ -48,7 +58,11 @@ class SubprocessAgentExecutor(AgentExecutor):
                 returncode=None,
             )
 
-        command = [self.agent_config.command, *self.agent_config.args]
+        dynamic_args = self._dynamic_args(target_model, reasoning_effort)
+        if self.agent_config.dynamic_args_before_static:
+            command = [self.agent_config.command, *dynamic_args, *self.agent_config.args]
+        else:
+            command = [self.agent_config.command, *self.agent_config.args, *dynamic_args]
         if not self.agent_config.prompt_via_stdin:
             command.append(prompt)
 
@@ -135,3 +149,15 @@ class SubprocessAgentExecutor(AgentExecutor):
             duration_seconds=time.perf_counter() - start,
             returncode=returncode,
         )
+
+    def _dynamic_args(
+        self,
+        target_model: str | None,
+        reasoning_effort: str | None,
+    ) -> list[str]:
+        args: list[str] = []
+        if target_model and self.agent_config.model_arg:
+            args.extend([self.agent_config.model_arg, target_model])
+        if reasoning_effort and self.agent_config.reasoning_effort_arg:
+            args.extend([self.agent_config.reasoning_effort_arg, reasoning_effort])
+        return args

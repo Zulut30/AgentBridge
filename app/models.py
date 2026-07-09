@@ -38,6 +38,17 @@ class AgentResult:
     returncode: int | None
 
 
+@dataclass(slots=True)
+class RouteResult:
+    content: str
+    requested_model: str
+    preset_id: str
+    selected_agent: str
+    target_model: str | None
+    reasoning_effort: str | None
+    duration_seconds: float
+    success: bool
+
+
 class ErrorResponse(BaseModel):
     detail: str = Field(..., examples=["Unauthorized"])
-

@@ -10,6 +10,8 @@ from fastapi.responses import StreamingResponse
 from app.config import AgentBridgeConfig, get_settings
 from app.models import ChatCompletionRequest, ChatMessage, ResponsesRequest
 from app.router.agent_router import AgentRouter
+from app.executors.base import command_is_available
+from app.usage import UsageTracker
 
 
 router = APIRouter()
@@ -19,42 +21,74 @@ def require_bearer_token(
     authorization: str | None = Header(default=None),
     settings: AgentBridgeConfig = Depends(get_settings),
 ) -> None:
+    if not settings.server.require_api_key:
+        return
+    if settings.server.allow_any_bearer and authorization and authorization.startswith("Bearer "):
+        return
     expected = f"Bearer {settings.api_key}"
     if authorization != expected:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
 
 @router.get("/v1/models", dependencies=[Depends(require_bearer_token)])
-async def list_models() -> dict[str, Any]:
+async def list_models(settings: AgentBridgeConfig = Depends(get_settings)) -> dict[str, Any]:
     return {
         "object": "list",
         "data": [
             {
-                "id": "agentbridge-grok",
+                "id": preset.id,
                 "object": "model",
                 "owned_by": "agentbridge",
-            },
-            {
-                "id": "agentbridge-codex",
-                "object": "model",
-                "owned_by": "agentbridge",
-            },
-            {
-                "id": "agentbridge-auto",
-                "object": "model",
-                "owned_by": "agentbridge",
-            },
+            }
+            for preset in settings.models.presets
+            if preset.cursor_enabled
         ],
     }
+
+
+@router.get("/agentbridge/status", dependencies=[Depends(require_bearer_token)])
+async def agentbridge_status(settings: AgentBridgeConfig = Depends(get_settings)) -> dict[str, Any]:
+    router_instance = AgentRouter(settings)
+    return {
+        "status": "ok",
+        "project_root": str(settings.project_root_path),
+        "agents": {
+            "grok": {
+                "enabled": settings.agents.grok.enabled,
+                "command": settings.agents.grok.command,
+                "available": settings.agents.grok.enabled and command_is_available(settings.agents.grok.command),
+            },
+            "codex": {
+                "enabled": settings.agents.codex.enabled,
+                "command": settings.agents.codex.command,
+                "available": settings.agents.codex.enabled and command_is_available(settings.agents.codex.command),
+            },
+        },
+        "models": [preset.model_dump() if hasattr(preset, "model_dump") else preset.dict() for preset in settings.models.presets],
+        "auto": router_instance.describe_auto(),
+        "usage": UsageTracker(settings).summary(),
+    }
+
+
+@router.get("/agentbridge/limits", dependencies=[Depends(require_bearer_token)])
+async def agentbridge_limits(settings: AgentBridgeConfig = Depends(get_settings)) -> dict[str, Any]:
+    return UsageTracker(settings).summary()
+
+
+@router.get("/agentbridge/auto", dependencies=[Depends(require_bearer_token)])
+async def agentbridge_auto(settings: AgentBridgeConfig = Depends(get_settings)) -> dict[str, Any]:
+    return AgentRouter(settings).describe_auto()
 
 
 @router.post("/v1/chat/completions", dependencies=[Depends(require_bearer_token)])
 async def chat_completions(request: ChatCompletionRequest) -> Any:
     prompt = _messages_to_prompt(request.messages)
     try:
-        content = await AgentRouter.from_settings().run(prompt)
+        route_result = await AgentRouter.from_settings().run(prompt, request.model)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    content = route_result.content
+    _record_usage("chat.completions", prompt, content, route_result)
 
     if request.stream:
         return StreamingResponse(
@@ -69,9 +103,11 @@ async def chat_completions(request: ChatCompletionRequest) -> Any:
 async def responses(request: ResponsesRequest) -> Any:
     prompt = _responses_input_to_prompt(request.input)
     try:
-        content = await AgentRouter.from_settings().run(prompt)
+        route_result = await AgentRouter.from_settings().run(prompt, request.model)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    content = route_result.content
+    _record_usage("responses", prompt, content, route_result)
 
     if request.stream:
         return StreamingResponse(
@@ -141,6 +177,24 @@ def _content_to_text(content: Any) -> str:
             return _content_to_text(content["content"])
         return json.dumps(content, ensure_ascii=False)
     return str(content)
+
+
+def _record_usage(endpoint: str, prompt: str, content: str, route_result: Any) -> None:
+    settings = get_settings()
+    UsageTracker(settings).record(
+        {
+            "endpoint": endpoint,
+            "requested_model": route_result.requested_model,
+            "preset_id": route_result.preset_id,
+            "selected_agent": route_result.selected_agent,
+            "target_model": route_result.target_model,
+            "reasoning_effort": route_result.reasoning_effort,
+            "duration_seconds": round(route_result.duration_seconds, 3),
+            "success": route_result.success,
+            "input_chars": len(prompt),
+            "output_chars": len(content),
+        }
+    )
 
 
 def _chat_completion_response(model: str, content: str) -> dict[str, Any]:

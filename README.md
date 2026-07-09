@@ -14,11 +14,14 @@ Cursor
 ## Возможности MVP
 
 - OpenAI-compatible endpoints: `/v1/models`, `/v1/chat/completions`, `/v1/responses`.
+- AgentBridge endpoints: `/agentbridge/status`, `/agentbridge/limits`, `/agentbridge/auto`.
 - Простая авторизация через Bearer token.
 - Роутинг команд `@grok`, `@codex`, `@both`, `@auto`.
+- Model presets для выбора модели и reasoning level из Cursor.
 - YAML-конфиг для CLI-команд, аргументов и timeout.
 - Markdown skills, которые добавляются в системный prompt.
 - Базовая safety policy против опасных команд и prompt-паттернов.
+- Локальный usage log для учета запросов, времени выполнения и soft-limits.
 - Упрощенный streaming: один SSE chunk и затем `[DONE]`.
 
 ## Установка
@@ -50,6 +53,8 @@ server:
   host: "127.0.0.1"
   port: 8787
   api_key_env: "AGENTBRIDGE_API_KEY"
+  require_api_key: true
+  allow_any_bearer: false
 
 project:
   root: "/path/to/project"
@@ -62,6 +67,9 @@ agents:
     timeout_seconds: 1200
     mode: "headless"
     prompt_via_stdin: false
+    model_arg: "-m"
+    reasoning_effort_arg: "--reasoning-effort"
+    dynamic_args_before_static: true
     args:
       - "-p"
 
@@ -71,11 +79,39 @@ agents:
     timeout_seconds: 1200
     mode: "exec"
     prompt_via_stdin: true
+    model_arg: "-m"
+    reasoning_effort_arg: null
+    dynamic_args_before_static: true
     args:
       - "exec"
 
 routing:
-  default_agent: "codex"
+  default_agent: "auto"
+  web_search_agent: "grok"
+  code_agent: "codex"
+  web_search_keywords:
+    - "x"
+    - "x.com"
+    - "twitter"
+    - "tweet"
+    - "latest"
+    - "today"
+    - "news"
+    - "search web"
+    - "web search"
+
+models:
+  presets:
+    - id: "agentbridge-auto"
+      agent: "auto"
+    - id: "agentbridge-auto-gpt-5.5-high"
+      agent: "auto"
+      target_model: "gpt-5.5"
+      reasoning_effort: "high"
+    - id: "agentbridge-auto-gpt-5.6-sol-high"
+      agent: "auto"
+      target_model: "gpt-5.6-sol"
+      reasoning_effort: "high"
 
 skills:
   enabled: true
@@ -92,9 +128,19 @@ safety:
     - "TRUNCATE"
     - "DELETE FROM"
     - "git push --force"
+
+usage:
+  enabled: true
+  path: ".agentbridge/usage.jsonl"
+  daily_request_limit: 200
+  daily_seconds_limit: 7200
 ```
 
 CLI-флаги не захардкожены в коде. Меняйте `agents.grok.command`, `agents.grok.args`, `agents.codex.command` и `agents.codex.args` под установленные версии Grok Build CLI и Codex CLI. Для Windows `.cmd` shim рекомендуется `prompt_via_stdin: true`, чтобы multiline prompt не обрезался shell-оберткой.
+
+`model_arg` и `reasoning_effort_arg` добавляют динамические CLI-флаги на основе выбранного Cursor model id. Grok Build поддерживает `--reasoning-effort`; Codex CLI `exec` в текущей версии поддерживает `--model`, а reasoning передается в prompt metadata.
+
+Если ваша версия Cursor хранит OpenAI key только в encrypted secret storage и не принимает plaintext row, для локального `127.0.0.1` можно включить `server.allow_any_bearer: true`. Тогда AgentBridge принимает любой Bearer token, но все равно требует наличие заголовка `Authorization`.
 
 ## Запуск
 
@@ -128,6 +174,57 @@ local-dev-key
 
 Model:
 agentbridge-auto
+```
+
+Можно настроить Cursor автоматически из репозитория:
+
+```bash
+python -m app.tools.configure_cursor --force --open
+```
+
+Команда:
+
+- делает backup Cursor `state.vscdb`;
+- включает OpenAI-compatible Base URL `http://127.0.0.1:8787/v1`;
+- записывает API key из `.env`;
+- добавляет все `models.presets` в Cursor model picker;
+- выбирает `agentbridge-auto` для существующих Cursor modes.
+
+Перед обычным использованием лучше закрыть Cursor и запустить команду без `--force`. `--force` нужен только если вы сознательно пишете настройки при запущенном Cursor.
+
+## Выбор модели и reasoning
+
+Cursor выбирает модель через model id. AgentBridge понимает preset ids из `agentbridge.yaml`.
+
+Примеры:
+
+```text
+agentbridge-auto
+agentbridge-grok
+agentbridge-codex
+agentbridge-auto-gpt-5.5-medium
+agentbridge-auto-gpt-5.5-high
+agentbridge-auto-gpt-5.6-sol-medium
+agentbridge-auto-gpt-5.6-sol-high
+```
+
+Если выбран preset с `target_model`, AgentBridge передает модель в CLI через `model_arg`. Если выбран preset с `reasoning_effort`, AgentBridge передает effort в Grok CLI через `reasoning_effort_arg` и всегда добавляет effort в prompt metadata.
+
+Если модель вроде `gpt-5.6-sol` еще недоступна в конкретном CLI/backend, CLI вернет понятную ошибку, а AgentBridge отдаст ее обратно в Cursor.
+
+## Что делает agentbridge-auto
+
+`agentbridge-auto` не является отдельной моделью. Это routing preset:
+
+- `@grok`, `@codex`, `@both`, `@auto` в prompt всегда имеют приоритет.
+- Без явной команды coding-задачи идут в `routing.code_agent` (`codex`).
+- Запросы с `x`, `x.com`, `twitter`, `tweet`, `latest`, `today`, `news`, `web search` идут в `routing.web_search_agent` (`grok`).
+- Grok Build web search включен по умолчанию, если вы сами не добавили `--disable-web-search` или запрет `web_search`.
+
+Проверить текущие правила:
+
+```bash
+curl -H "Authorization: Bearer local-dev-key" http://127.0.0.1:8787/agentbridge/auto
 ```
 
 ## Примеры команд из Cursor
@@ -192,6 +289,21 @@ agentbridge-auto
   "stream": false
 }
 ```
+
+### `GET /agentbridge/status`
+
+Возвращает project root, доступность CLI, model presets, auto-routing rules и usage summary.
+
+### `GET /agentbridge/limits`
+
+Возвращает локальную сводку usage log за текущий UTC-день:
+
+- сколько запросов прошло через AgentBridge;
+- сколько секунд заняли агенты;
+- разбивку по agent/model;
+- остаток по soft-limits из `usage.daily_request_limit` и `usage.daily_seconds_limit`.
+
+Это локальный счетчик AgentBridge, а не официальный счетчик лимитов Grok/Codex аккаунта.
 
 ## Skills
 

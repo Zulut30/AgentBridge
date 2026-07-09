@@ -2,6 +2,8 @@ server:
   host: "127.0.0.1"
   port: 8787
   api_key_env: "AGENTBRIDGE_API_KEY"
+  require_api_key: true
+  allow_any_bearer: false
 
 project:
   root: "."
@@ -14,6 +16,9 @@ agents:
     timeout_seconds: 1200
     mode: "headless"
     prompt_via_stdin: false
+    model_arg: "-m"
+    reasoning_effort_arg: "--reasoning-effort"
+    dynamic_args_before_static: true
     args:
       - "-p"
 
@@ -23,11 +28,54 @@ agents:
     timeout_seconds: 1200
     mode: "exec"
     prompt_via_stdin: true
+    model_arg: "-m"
+    reasoning_effort_arg: null
+    dynamic_args_before_static: true
     args:
       - "exec"
 
 routing:
-  default_agent: "codex"
+  default_agent: "auto"
+  web_search_agent: "grok"
+  code_agent: "codex"
+  web_search_keywords:
+    - "x"
+    - "x.com"
+    - "twitter"
+    - "tweet"
+    - "latest"
+    - "today"
+    - "news"
+    - "search web"
+    - "web search"
+
+models:
+  presets:
+    - id: "agentbridge-auto"
+      agent: "auto"
+      label: "AgentBridge Auto"
+    - id: "agentbridge-grok"
+      agent: "grok"
+      label: "AgentBridge Grok"
+    - id: "agentbridge-codex"
+      agent: "codex"
+      label: "AgentBridge Codex"
+    - id: "agentbridge-auto-gpt-5.5-medium"
+      agent: "auto"
+      target_model: "gpt-5.5"
+      reasoning_effort: "medium"
+    - id: "agentbridge-auto-gpt-5.5-high"
+      agent: "auto"
+      target_model: "gpt-5.5"
+      reasoning_effort: "high"
+    - id: "agentbridge-auto-gpt-5.6-sol-medium"
+      agent: "auto"
+      target_model: "gpt-5.6-sol"
+      reasoning_effort: "medium"
+    - id: "agentbridge-auto-gpt-5.6-sol-high"
+      agent: "auto"
+      target_model: "gpt-5.6-sol"
+      reasoning_effort: "high"
 
 skills:
   enabled: true
@@ -44,3 +92,9 @@ safety:
     - "TRUNCATE"
     - "DELETE FROM"
     - "git push --force"
+
+usage:
+  enabled: true
+  path: ".agentbridge/usage.jsonl"
+  daily_request_limit: 200
+  daily_seconds_limit: 7200
