@@ -24,13 +24,14 @@ Set-ExecutionPolicy -Scope Process Bypass
 In another PowerShell window:
 
 ```powershell
-.\scripts\check.ps1 -Server
+.\scripts\check.ps1 -Server -Cursor
 ```
 
 Configure Cursor with a public HTTPS tunnel when Cursor blocks local/private network providers:
 
 ```powershell
-python -m app.tools.configure_cursor --tunnel cloudflared --force --open
+python -m app.tools.configure_cursor --tunnel cloudflared --mcp --force --open
+python -m app.tools.configure_cursor --mcp-only --mcp-json
 ```
 
 ## macOS
@@ -47,13 +48,14 @@ chmod +x scripts/*.sh
 In another terminal:
 
 ```bash
-./scripts/check.sh --server
+./scripts/check.sh --server --cursor
 ```
 
 Configure Cursor:
 
 ```bash
-python -m app.tools.configure_cursor --tunnel cloudflared --force --open
+python -m app.tools.configure_cursor --tunnel cloudflared --mcp --force --open
+python -m app.tools.configure_cursor --mcp-only --mcp-json
 ```
 
 ## Linux
@@ -70,13 +72,14 @@ chmod +x scripts/*.sh
 In another terminal:
 
 ```bash
-./scripts/check.sh --server
+./scripts/check.sh --server --cursor
 ```
 
 If Cursor is running in the same desktop session, configure it with:
 
 ```bash
-python -m app.tools.configure_cursor --tunnel cloudflared --force --open
+python -m app.tools.configure_cursor --tunnel cloudflared --mcp --force --open
+python -m app.tools.configure_cursor --mcp-only --mcp-json
 ```
 
 ## Manual Install
@@ -107,4 +110,28 @@ Run local install checks plus HTTP endpoint checks against the configured server
 python -m app.tools.doctor --server
 ```
 
-The doctor checks Python version, importable dependencies, config loading, project root, optional Grok/Codex CLI availability, model preset count, and OpenAI-compatible HTTP endpoints when `--server` is used.
+Run Cursor-specific checks:
+
+```bash
+python -m app.tools.doctor --cursor --server
+```
+
+The doctor checks Python version, importable dependencies, config loading, project root, optional Grok/Codex CLI availability, model preset count, Grok subagent flag state, Cursor CLI support, Cursor provider state, Cursor MCP configuration, and OpenAI-compatible HTTP endpoints when `--server` is used.
+
+## Cursor MCP Tools
+
+AgentBridge can also register a local Cursor MCP server. This does not create `.cursor/rules` and does not force a model selection; you can keep switching models manually in Cursor.
+
+Register through Cursor CLI:
+
+```bash
+python -m app.tools.configure_cursor --mcp-only
+```
+
+Write a project-local `.cursor/mcp.json`:
+
+```bash
+python -m app.tools.configure_cursor --mcp-only --mcp-json
+```
+
+The project-local MCP file is ignored by git because it contains absolute local paths and a local bearer token.

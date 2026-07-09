@@ -1,5 +1,6 @@
 param(
-    [switch]$Server
+    [switch]$Server,
+    [switch]$Cursor
 )
 
 $ErrorActionPreference = "Stop"
@@ -18,8 +19,12 @@ $Files = Get-ChildItem -Recurse -Filter *.py |
     ForEach-Object { $_.FullName }
 & $Python -m py_compile @Files
 
+$DoctorArgs = @()
 if ($Server) {
-    & $Python -m app.tools.doctor --server
-} else {
-    & $Python -m app.tools.doctor
+    $DoctorArgs += "--server"
 }
+if ($Cursor) {
+    $DoctorArgs += "--cursor"
+}
+
+& $Python -m app.tools.doctor @DoctorArgs

@@ -8,6 +8,7 @@ __pycache__/
 /agentbridge.pid
 /agentbridge.*.log
 /mcps/
+/.cursor/mcp.json
 /.agentbridge/usage.jsonl
 /.agentbridge/tmp/
 /.agentbridge/cursor-backups/

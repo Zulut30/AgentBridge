@@ -27,6 +27,11 @@ def main() -> int:
     parser.add_argument("--backup-dir", default=None)
     parser.add_argument("--tunnel", choices=["none", "cloudflared"], default="none")
     parser.add_argument("--tunnel-timeout", type=int, default=45)
+    parser.add_argument("--mcp", action="store_true", help="Also register AgentBridge as a Cursor MCP server.")
+    parser.add_argument("--mcp-only", action="store_true", help="Only register the Cursor MCP server; do not edit model settings.")
+    parser.add_argument("--mcp-json", action="store_true", help="Write project .cursor/mcp.json instead of using cursor --add-mcp.")
+    parser.add_argument("--mcp-name", default="agentbridge", help="Cursor MCP server name.")
+    parser.add_argument("--mcp-base-url", default=None, help="AgentBridge root URL for MCP tools. Defaults to local server root.")
     parser.add_argument("--force", action="store_true", help="Write even when Cursor appears to be running.")
     parser.add_argument("--open", action="store_true", help="Open Cursor on the configured project after writing.")
     args = parser.parse_args()
@@ -37,6 +42,14 @@ def main() -> int:
     api_key = args.api_key or settings.api_key
     tunnel_summary: dict[str, Any] | None = None
     base_url = args.base_url
+    mcp_base_url = args.mcp_base_url or f"http://{settings.server.host}:{settings.server.port}"
+
+    if args.mcp_only:
+        summary = configure_cursor_mcp(settings, args.mcp_name, mcp_base_url, api_key, write_json=args.mcp_json)
+        if args.open:
+            open_cursor(settings.project_root_path)
+        print(json.dumps(summary, ensure_ascii=False, indent=2))
+        return 0
 
     if not db_path.exists():
         raise SystemExit(f"Cursor state database not found: {db_path}")
@@ -59,6 +72,8 @@ def main() -> int:
     )
     if tunnel_summary:
         summary["tunnel"] = tunnel_summary
+    if args.mcp:
+        summary["mcp"] = configure_cursor_mcp(settings, args.mcp_name, mcp_base_url, api_key, write_json=args.mcp_json)
 
     if args.open:
         open_cursor(settings.project_root_path)
@@ -107,6 +122,129 @@ def is_cursor_running() -> bool:
         return "Cursor.exe" in result.stdout
     result = subprocess.run(["pgrep", "-x", "Cursor"], capture_output=True, text=True, check=False)
     return result.returncode == 0
+
+
+def cursor_executable() -> str:
+    cursor_bin = shutil.which("cursor") or shutil.which("cursor.cmd") or shutil.which("Cursor.exe")
+    if cursor_bin:
+        return cursor_bin
+    if sys.platform == "win32":
+        local_appdata = Path(os.environ.get("LOCALAPPDATA", ""))
+        candidate = local_appdata / "Programs" / "cursor" / "Cursor.exe"
+        if candidate.exists():
+            return str(candidate)
+    raise RuntimeError("Could not find Cursor launcher.")
+
+
+def install_cursor_mcp(
+    *,
+    settings: Any,
+    name: str,
+    base_url: str,
+    api_key: str,
+) -> dict[str, Any]:
+    definition = _cursor_add_mcp_definition(settings, name, base_url, api_key)
+    cursor_bin = cursor_executable()
+    result = subprocess.run(
+        [cursor_bin, "--add-mcp", json.dumps(definition, ensure_ascii=False, separators=(",", ":"))],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if result.returncode != 0:
+        raise RuntimeError(
+            "Cursor MCP registration failed.\n\n"
+            f"stdout:\n{result.stdout.strip()}\n\n"
+            f"stderr:\n{result.stderr.strip()}"
+        )
+    return {
+        "ok": True,
+        "mode": "cursor-cli",
+        "name": name,
+        "baseUrl": base_url.rstrip("/"),
+        "cursorBin": cursor_bin,
+        "definition": _redact_mcp_definition(definition, settings.server.api_key_env),
+        "stdout": result.stdout.strip(),
+        "stderr": result.stderr.strip(),
+    }
+
+
+def configure_cursor_mcp(
+    settings: Any,
+    name: str,
+    base_url: str,
+    api_key: str,
+    *,
+    write_json: bool,
+) -> dict[str, Any]:
+    if write_json:
+        return write_project_mcp_json(settings, name, base_url, api_key)
+    return install_cursor_mcp(settings=settings, name=name, base_url=base_url, api_key=api_key)
+
+
+def _mcp_server_definition(settings: Any, base_url: str, api_key: str) -> dict[str, Any]:
+    root = settings.config_dir_path
+    config_path = root / "agentbridge.yaml"
+    server_path = root / "app" / "tools" / "mcp_server.py"
+    return {
+        "type": "stdio",
+        "command": sys.executable,
+        "args": [
+            str(server_path),
+            "--base-url",
+            base_url.rstrip("/"),
+        ],
+        "env": {
+            "PYTHONPATH": str(root),
+            "AGENTBRIDGE_CONFIG": str(config_path),
+            settings.server.api_key_env: api_key,
+        },
+    }
+
+
+def _cursor_add_mcp_definition(settings: Any, name: str, base_url: str, api_key: str) -> dict[str, Any]:
+    server_definition = _mcp_server_definition(settings, base_url, api_key)
+    return {
+        "name": name,
+        "command": server_definition["command"],
+        "args": server_definition["args"],
+        "env": server_definition["env"],
+    }
+
+
+def write_project_mcp_json(settings: Any, name: str, base_url: str, api_key: str) -> dict[str, Any]:
+    mcp_dir = settings.config_dir_path / ".cursor"
+    mcp_path = mcp_dir / "mcp.json"
+    mcp_dir.mkdir(parents=True, exist_ok=True)
+    if mcp_path.exists():
+        data = json.loads(mcp_path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            data = {}
+    else:
+        data = {}
+    servers = data.setdefault("mcpServers", {})
+    if not isinstance(servers, dict):
+        servers = {}
+        data["mcpServers"] = servers
+    server_definition = _mcp_server_definition(settings, base_url, api_key)
+    servers[name] = server_definition
+    mcp_path.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    return {
+        "ok": True,
+        "mode": "project-mcp-json",
+        "name": name,
+        "baseUrl": base_url.rstrip("/"),
+        "path": str(mcp_path),
+        "definition": _redact_mcp_definition(server_definition, settings.server.api_key_env),
+    }
+
+
+def _redact_mcp_definition(definition: dict[str, Any], api_key_env: str) -> dict[str, Any]:
+    redacted = json.loads(json.dumps(definition))
+    env = redacted.get("env")
+    if isinstance(env, dict) and api_key_env in env:
+        env[api_key_env] = "<redacted>"
+    return redacted
 
 
 def start_cloudflared_tunnel(settings: Any, timeout_seconds: int = 45) -> dict[str, Any]:

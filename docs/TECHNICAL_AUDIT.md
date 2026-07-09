@@ -34,6 +34,8 @@ Runtime checked on 2026-07-09:
 - Grok receives a compact search-focused prompt so current/X/search requests stay on the concrete user subject.
 - Grok prompts are passed through `--prompt-file` by default to avoid Windows command-line length limits when Cursor sends large context.
 - Empty successful CLI output is treated as an agent failure instead of being returned to Cursor as a blank answer.
+- Cursor MCP integration is implemented through a stdio MCP server and can be registered with `cursor --add-mcp` or project-local `.cursor/mcp.json`.
+- Grok subagents are not disabled by AgentBridge; `doctor --cursor` and `/agentbridge/status` report the current subagent flag state.
 
 ## Local Verification Results
 
@@ -45,6 +47,7 @@ Environment: Windows, PowerShell, Python 3.13.
 - `git diff --check`: passed.
 - `python -m app.tools.doctor --server`: passed local HTTP checks.
 - `python -m app.tools.doctor --server --base-url <https tunnel root>`: passed tunnel HTTP checks.
+- `python -m app.tools.doctor --server --cursor`: passed Cursor CLI, provider, MCP config, and subagent checks.
 - `/v1/models` returned 150 model ids.
 - `/v1/chat/completions` returned a valid non-streaming OpenAI-compatible response.
 - `/v1/responses` returned a valid OpenAI-compatible response.
@@ -55,6 +58,7 @@ Environment: Windows, PowerShell, Python 3.13.
 - Russian Hearthstone/X query returned a Hearthstone deck/meta answer and did not fall back to generic X trends.
 - A prompt containing `truncate` returned a normal model answer and was not rejected by AgentBridge safety policy.
 - Large Grok prompts over 39k and 52k characters succeeded locally and through the Cloudflare tunnel using `--prompt-file`.
+- AgentBridge MCP stdio `initialize`, `tools/list`, `agentbridge_status`, and `agentbridge_test_agent` passed local protocol checks.
 - Usage tracking wrote local JSONL events and `/agentbridge/limits` returned daily counters and remaining budget.
 
 ## Installability Audit

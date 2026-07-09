@@ -57,6 +57,7 @@ async def agentbridge_status(settings: AgentBridgeConfig = Depends(get_settings)
                 "enabled": settings.agents.grok.enabled,
                 "command": settings.agents.grok.command,
                 "available": settings.agents.grok.enabled and command_is_available(settings.agents.grok.command),
+                "subagents_enabled": "--no-subagents" not in [arg.lower() for arg in settings.agents.grok.args],
             },
             "codex": {
                 "enabled": settings.agents.codex.enabled,

@@ -15,8 +15,18 @@ fi
 FILES=$(find . -path './.venv' -prune -o -name '*.py' -print)
 "$PYTHON" -m py_compile $FILES
 
-if [ "${1:-}" = "--server" ]; then
-  "$PYTHON" -m app.tools.doctor --server
-else
-  "$PYTHON" -m app.tools.doctor
-fi
+DOCTOR_ARGS=""
+for arg in "$@"; do
+  case "$arg" in
+    --server|--cursor)
+      DOCTOR_ARGS="$DOCTOR_ARGS $arg"
+      ;;
+    *)
+      printf 'Unknown argument: %s\n' "$arg" >&2
+      exit 2
+      ;;
+  esac
+done
+
+# shellcheck disable=SC2086
+"$PYTHON" -m app.tools.doctor $DOCTOR_ARGS

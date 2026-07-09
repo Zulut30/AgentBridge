@@ -34,7 +34,7 @@ Cursor
 Set-ExecutionPolicy -Scope Process Bypass
 .\scripts\install.ps1
 .\scripts\run.ps1
-.\scripts\check.ps1 -Server
+.\scripts\check.ps1 -Server -Cursor
 ```
 
 Быстрый старт на macOS/Linux:
@@ -43,7 +43,7 @@ Set-ExecutionPolicy -Scope Process Bypass
 chmod +x scripts/*.sh
 ./scripts/install.sh
 ./scripts/run.sh
-./scripts/check.sh --server
+./scripts/check.sh --server --cursor
 ```
 
 Подробная инструкция: [`docs/INSTALL.md`](docs/INSTALL.md).
@@ -192,10 +192,19 @@ agentbridge-auto
 python -m app.tools.configure_cursor --force --open
 ```
 
+Добавить AgentBridge MCP tools в Cursor без изменения `.cursor/rules`:
+
+```bash
+python -m app.tools.configure_cursor --mcp-only
+python -m app.tools.configure_cursor --mcp-only --mcp-json
+```
+
+`--mcp-only` использует официальный `cursor --add-mcp`. `--mcp-json` пишет локальный `.cursor/mcp.json` в проект; этот файл игнорируется git, потому что содержит абсолютные пути вашей машины. MCP tools дают Cursor доступ к `agentbridge_status`, `agentbridge_limits`, `agentbridge_models`, `agentbridge_test_agent` и `agentbridge_logs`.
+
 Если Cursor возвращает `Access to private networks is forbidden`, используйте публичный HTTPS-туннель:
 
 ```bash
-python -m app.tools.configure_cursor --tunnel cloudflared --force --open
+python -m app.tools.configure_cursor --tunnel cloudflared --mcp --force --open
 ```
 
 Эта команда запускает `npx cloudflared tunnel --url http://127.0.0.1:8787`, ждет URL вида `https://*.trycloudflare.com`, прописывает его в Cursor как OpenAI-compatible Base URL и сохраняет логи туннеля в `.agentbridge/tunnel/`.
@@ -207,6 +216,7 @@ python -m app.tools.configure_cursor --tunnel cloudflared --force --open
 - записывает API key из `.env`;
 - добавляет все `models.presets` в Cursor model picker;
 - выбирает `agentbridge-auto` для существующих Cursor modes.
+- с `--mcp` дополнительно регистрирует AgentBridge MCP tools.
 
 Перед обычным использованием лучше закрыть Cursor и запустить команду без `--force`. `--force` нужен только если вы сознательно пишете настройки при запущенном Cursor.
 
@@ -237,6 +247,15 @@ agentbridge-grok-build-high
 Если выбран preset с `target_model`, AgentBridge передает модель в CLI через `model_arg`. Если выбран preset с `reasoning_effort`, AgentBridge передает effort в Grok CLI через `reasoning_effort_arg` и всегда добавляет effort в prompt metadata.
 
 Если модель вроде `gpt-5.6-sol` еще недоступна в конкретном CLI/backend, CLI вернет понятную ошибку, а AgentBridge отдаст ее обратно в Cursor.
+
+## Subagents
+
+AgentBridge не добавляет `--no-subagents` к Grok Build CLI. Если установленная версия Grok поддерживает subagents, они остаются включены. Текущее состояние видно в:
+
+```bash
+python -m app.tools.doctor --cursor
+curl -H "Authorization: Bearer local-dev-key" http://127.0.0.1:8787/agentbridge/status
+```
 
 ## Что делает agentbridge-auto
 
