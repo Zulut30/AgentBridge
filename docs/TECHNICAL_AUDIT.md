@@ -57,7 +57,17 @@ Environment: Windows, PowerShell, Python 3.13.
 - Large Grok prompts over 39k and 52k characters succeeded locally and through the Cloudflare tunnel using `--prompt-file`.
 - Usage tracking wrote local JSONL events and `/agentbridge/limits` returned daily counters and remaining budget.
 
-POSIX shell scripts were added for macOS/Linux. This Windows host did not provide a usable POSIX shell for `sh -n`; run `./scripts/check.sh --server` on a macOS/Linux host before tagging a formal release.
+## Installability Audit
+
+- Fresh Windows clone install passed with `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\install.ps1`.
+- Fresh Windows clone check passed with `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\check.ps1`.
+- POSIX script syntax passed with Git for Windows `sh -n` for `scripts/install.sh`, `scripts/run.sh`, and `scripts/check.sh`.
+- POSIX scripts are tracked with executable bit `100755`.
+- POSIX scripts have LF line endings and `#!/usr/bin/env sh` shebangs.
+- `examples/agentbridge.yaml` loads successfully and exposes 150 Cursor-enabled model presets.
+- The default Grok config uses `prompt_via_file: true` and `--prompt-file`; the default Codex config uses `prompt_via_stdin: true`.
+
+Docker/Podman were not available on this Windows host, and WSL did not return within the command timeout. Before tagging a formal cross-platform release, run `./scripts/install.sh` and `./scripts/check.sh --server` on a real macOS or Linux machine.
 
 ## Verification Matrix
 
