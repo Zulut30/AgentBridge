@@ -1,0 +1,45 @@
+server:
+  host: "127.0.0.1"
+  port: 8787
+  api_key_env: "AGENTBRIDGE_API_KEY"
+
+project:
+  root: "."
+  default_branch: "main"
+
+agents:
+  grok:
+    enabled: true
+    command: "grok"
+    timeout_seconds: 1200
+    mode: "headless"
+    args:
+      - "-p"
+
+  codex:
+    enabled: true
+    command: "codex"
+    timeout_seconds: 1200
+    mode: "exec"
+    args:
+      - "exec"
+
+routing:
+  default_agent: "codex"
+
+skills:
+  enabled: true
+  paths:
+    - "./skills"
+    - ".agentbridge/skills"
+
+safety:
+  readonly_by_default: true
+  forbid_dangerous_commands: true
+  forbidden_patterns:
+    - "rm -rf /"
+    - "DROP DATABASE"
+    - "TRUNCATE"
+    - "DELETE FROM"
+    - "git push --force"
+
