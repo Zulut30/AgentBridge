@@ -88,11 +88,12 @@ agents:
     timeout_seconds: 1200
     mode: "headless"
     prompt_via_stdin: false
+    prompt_via_file: true
+    prompt_file_arg: "--prompt-file"
     model_arg: "-m"
     reasoning_effort_arg: "--reasoning-effort"
     dynamic_args_before_static: true
-    args:
-      - "-p"
+    args: []
 
   codex:
     enabled: true
@@ -145,7 +146,7 @@ usage:
   daily_seconds_limit: 7200
 ```
 
-CLI-флаги не захардкожены в коде. Меняйте `agents.grok.command`, `agents.grok.args`, `agents.codex.command` и `agents.codex.args` под установленные версии Grok Build CLI и Codex CLI. Для Windows `.cmd` shim рекомендуется `prompt_via_stdin: true`, чтобы multiline prompt не обрезался shell-оберткой.
+CLI-флаги не захардкожены в коде. Меняйте `agents.grok.command`, `agents.grok.args`, `agents.codex.command` и `agents.codex.args` под установленные версии Grok Build CLI и Codex CLI. Для Grok Build на Windows рекомендуется `prompt_via_file: true` с `prompt_file_arg: "--prompt-file"`, потому что Cursor может присылать длинный контекст и упереться в лимит длины command line. Для Windows `.cmd` shim рекомендуется `prompt_via_stdin: true`, чтобы multiline prompt не обрезался shell-оберткой.
 
 `model_arg` и `reasoning_effort_arg` добавляют динамические CLI-флаги на основе выбранного Cursor model id. Grok Build поддерживает `--reasoning-effort`; Codex CLI `exec` в текущей версии поддерживает `--model`, а reasoning передается в prompt metadata.
 

@@ -48,6 +48,40 @@ class SafetyPolicyTest(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(result.success, result.stderr)
         self.assertIn("Explain truncate behavior.", result.stdout)
 
+    async def test_prompt_file_mode_handles_long_prompts_and_cleans_up(self) -> None:
+        prompt = "Long Cursor prompt. " * 3000
+        reader = (
+            "import pathlib, sys; "
+            "path = pathlib.Path(sys.argv[sys.argv.index('--prompt-file') + 1]); "
+            "print(path.read_text(encoding='utf-8')[:18]); "
+            "print(len(path.read_text(encoding='utf-8')))"
+        )
+        with tempfile.TemporaryDirectory() as temp_dir:
+            root = Path(temp_dir)
+            settings = AgentBridgeConfig(
+                project=ProjectConfig(root=str(root)),
+                config_dir=str(root),
+            )
+            executor = SubprocessAgentExecutor(
+                "file-agent",
+                AgentConfig(
+                    command=sys.executable,
+                    args=["-c", reader],
+                    prompt_via_file=True,
+                    prompt_file_arg="--prompt-file",
+                ),
+                settings,
+            )
+
+            result = await executor.run(prompt)
+            prompt_dir = root / ".agentbridge" / "tmp" / "prompts"
+            leftovers = list(prompt_dir.glob("file-agent-*.txt")) if prompt_dir.exists() else []
+
+        self.assertTrue(result.success, result.stderr)
+        self.assertIn("Long Cursor prompt", result.stdout)
+        self.assertIn(str(len(prompt)), result.stdout)
+        self.assertEqual(leftovers, [])
+
     async def test_static_dangerous_command_is_still_blocked(self) -> None:
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)

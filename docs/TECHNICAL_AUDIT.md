@@ -32,6 +32,7 @@ Runtime checked on 2026-07-09:
 - Cross-platform install/run/check scripts exist for Windows PowerShell and POSIX shells.
 - Prompt safety no longer blocks ordinary user prompts containing words such as `truncate`; prompt scanning is opt-in through `safety.forbid_dangerous_prompts`.
 - Grok receives a compact search-focused prompt so current/X/search requests stay on the concrete user subject.
+- Grok prompts are passed through `--prompt-file` by default to avoid Windows command-line length limits when Cursor sends large context.
 - Empty successful CLI output is treated as an agent failure instead of being returned to Cursor as a blank answer.
 
 ## Local Verification Results
@@ -39,7 +40,7 @@ Runtime checked on 2026-07-09:
 Environment: Windows, PowerShell, Python 3.13.
 
 - `powershell -ExecutionPolicy Bypass -File .\scripts\check.ps1 -Server`: passed.
-- `python -m unittest discover -s tests`: 19 tests passed.
+- `python -m unittest discover -s tests`: 20 tests passed.
 - `python -m py_compile` over repository Python files: passed.
 - `git diff --check`: passed.
 - `python -m app.tools.doctor --server`: passed local HTTP checks.
@@ -53,6 +54,7 @@ Environment: Windows, PowerShell, Python 3.13.
 - Auto X/web prompt routed through Grok and returned a valid response.
 - Russian Hearthstone/X query returned a Hearthstone deck/meta answer and did not fall back to generic X trends.
 - A prompt containing `truncate` returned a normal model answer and was not rejected by AgentBridge safety policy.
+- Large Grok prompts over 39k and 52k characters succeeded locally and through the Cloudflare tunnel using `--prompt-file`.
 - Usage tracking wrote local JSONL events and `/agentbridge/limits` returned daily counters and remaining budget.
 
 POSIX shell scripts were added for macOS/Linux. This Windows host did not provide a usable POSIX shell for `sh -n`; run `./scripts/check.sh --server` on a macOS/Linux host before tagging a formal release.

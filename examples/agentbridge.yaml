@@ -16,11 +16,12 @@ agents:
     timeout_seconds: 1200
     mode: "headless"
     prompt_via_stdin: false
+    prompt_via_file: true
+    prompt_file_arg: "--prompt-file"
     model_arg: "-m"
     reasoning_effort_arg: "--reasoning-effort"
     dynamic_args_before_static: true
-    args:
-      - "-p"
+    args: []
 
   codex:
     enabled: true

@@ -28,6 +28,8 @@ class AgentConfig(BaseModel):
     mode: str = "exec"
     args: list[str] = Field(default_factory=list)
     prompt_via_stdin: bool = False
+    prompt_via_file: bool = False
+    prompt_file_arg: str | None = None
     model_arg: str | None = None
     reasoning_effort_arg: str | None = None
     dynamic_args_before_static: bool = True
@@ -38,7 +40,9 @@ class AgentsConfig(BaseModel):
         default_factory=lambda: AgentConfig(
             command="grok",
             mode="headless",
-            args=["-p"],
+            args=[],
+            prompt_via_file=True,
+            prompt_file_arg="--prompt-file",
         )
     )
     codex: AgentConfig = Field(
