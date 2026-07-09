@@ -6,6 +6,20 @@ Date: 2026-07-09
 
 This audit covers the AgentBridge local OpenAI-compatible proxy, Cursor configuration flow, model routing, installation scripts, and verification commands.
 
+## Repeat Audit Result
+
+Status: passed with no blocking findings.
+
+Runtime checked on 2026-07-09:
+
+- Repository state: `main` clean and synchronized with `origin/main`.
+- Live local server: `127.0.0.1:8787`, running `uvicorn app.main:app`.
+- Live tunnel: Cloudflare Quick Tunnel configured as Cursor Base URL.
+- Cursor state: `openAIBaseUrl` points to the tunnel `/v1` URL, `useOpenAIKey` is enabled, and 150 AgentBridge models are registered.
+- Local Grok CLI: available at `C:\Users\zulut\.grok\bin\grok.exe`.
+- Local Codex CLI: available at `C:\Users\zulut\AppData\Roaming\npm\codex.cmd`.
+- Local config: `allow_any_bearer: true` is enabled for the current trusted local/tunnel setup.
+
 ## Current Status
 
 - OpenAI-compatible endpoints are implemented: `/v1/models`, `/v1/chat/completions`, `/v1/responses`.
@@ -16,14 +30,18 @@ This audit covers the AgentBridge local OpenAI-compatible proxy, Cursor configur
 - Unsupported future model ids fall back to the selected CLI default model when the CLI rejects the explicit model id.
 - Usage tracking is local JSONL under `.agentbridge/usage.jsonl`.
 - Cross-platform install/run/check scripts exist for Windows PowerShell and POSIX shells.
+- Prompt safety no longer blocks ordinary user prompts containing words such as `truncate`; prompt scanning is opt-in through `safety.forbid_dangerous_prompts`.
+- Grok receives a compact search-focused prompt so current/X/search requests stay on the concrete user subject.
+- Empty successful CLI output is treated as an agent failure instead of being returned to Cursor as a blank answer.
 
 ## Local Verification Results
 
 Environment: Windows, PowerShell, Python 3.13.
 
 - `powershell -ExecutionPolicy Bypass -File .\scripts\check.ps1 -Server`: passed.
-- `python -m unittest discover -s tests`: 13 tests passed.
+- `python -m unittest discover -s tests`: 19 tests passed.
 - `python -m py_compile` over repository Python files: passed.
+- `git diff --check`: passed.
 - `python -m app.tools.doctor --server`: passed local HTTP checks.
 - `python -m app.tools.doctor --server --base-url <https tunnel root>`: passed tunnel HTTP checks.
 - `/v1/models` returned 150 model ids.
@@ -31,7 +49,11 @@ Environment: Windows, PowerShell, Python 3.13.
 - `/v1/responses` returned a valid OpenAI-compatible response.
 - `/v1/chat/completions` with `stream: true` returned `text/event-stream` with one data chunk and `[DONE]`.
 - Missing `Authorization` against `/v1/models` returned HTTP 401.
+- Any Bearer token is accepted only because the current local config has `allow_any_bearer: true`.
 - Auto X/web prompt routed through Grok and returned a valid response.
+- Russian Hearthstone/X query returned a Hearthstone deck/meta answer and did not fall back to generic X trends.
+- A prompt containing `truncate` returned a normal model answer and was not rejected by AgentBridge safety policy.
+- Usage tracking wrote local JSONL events and `/agentbridge/limits` returned daily counters and remaining budget.
 
 POSIX shell scripts were added for macOS/Linux. This Windows host did not provide a usable POSIX shell for `sh -n`; run `./scripts/check.sh --server` on a macOS/Linux host before tagging a formal release.
 
